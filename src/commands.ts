@@ -202,6 +202,7 @@ const usageReport: Command = {
 }
 import oauthRefresh from './commands/oauth-refresh/index.js'
 import debugToolCall from './commands/debug-tool-call/index.js'
+import debugMeta from './commands/debug-meta/index.js'
 import { getSettingSourceName } from './utils/settings/constants.js'
 import {
   type Command,
@@ -249,6 +250,7 @@ export const INTERNAL_ONLY_COMMANDS = [
   env,
   oauthRefresh,
   debugToolCall,
+  debugMeta,
   agentsPlatform,
   autofixPr,
 ].filter(Boolean)

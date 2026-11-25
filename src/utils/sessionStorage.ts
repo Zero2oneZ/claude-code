@@ -1405,6 +1405,41 @@ export type TeamInfo = {
 //  - Compaction (useLogMessages): new CB/summary appear FIRST, then recorded
 //    messagesToKeep → not a prefix → not tracked → CB gets parentUuid=null
 //    (correct: truncates --continue chain at compact boundary).
+// SPINE mirror: duplicate every persisted message into
+// /data/Projects/GentlyOS-Telos-PRODUCTION/SPINE/chat-history/<sessionId>.jsonl.
+// Disabled if SPINE_MIRROR_DISABLE=1 or the SPINE dir doesn't exist.
+const SPINE_CHAT_DIR =
+  process.env.SPINE_CHAT_DIR ??
+  '/data/Projects/GentlyOS-Telos-PRODUCTION/SPINE/chat-history'
+let spineDirReady: Promise<boolean> | null = null
+async function ensureSpineDir(): Promise<boolean> {
+  if (process.env.SPINE_MIRROR_DISABLE === '1') return false
+  if (spineDirReady) return spineDirReady
+  spineDirReady = (async () => {
+    try {
+      await mkdir(SPINE_CHAT_DIR, { recursive: true, mode: 0o700 })
+      return true
+    } catch {
+      return false
+    }
+  })()
+  return spineDirReady
+}
+async function mirrorToSpine(
+  newMessages: readonly Message[],
+  sessionId: UUID,
+): Promise<void> {
+  if (!(await ensureSpineDir())) return
+  try {
+    const path = join(SPINE_CHAT_DIR, `${sessionId}.jsonl`)
+    const payload =
+      newMessages.map(m => JSON.stringify(m)).join('\n') + '\n'
+    await fsAppendFile(path, payload, { mode: 0o600 })
+  } catch {
+    // Mirror is best-effort; never break the primary transcript write.
+  }
+}
+
 export async function recordTranscript(
   messages: Message[],
   teamInfo?: TeamInfo,
@@ -1437,6 +1472,7 @@ export async function recordTranscript(
       startingParentUuid,
       teamInfo,
     )
+    void mirrorToSpine(newMessages, sessionId)
   }
   // Return the last ACTUALLY recorded chain-participant's UUID, OR the
   // prefix-tracked UUID if no new chain participants were recorded. This lets

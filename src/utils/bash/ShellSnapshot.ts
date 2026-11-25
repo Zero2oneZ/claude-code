@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { execa } from 'execa'
-import { mkdir, stat } from 'fs/promises'
+import { chmod, mkdir, stat } from 'fs/promises'
 import * as os from 'os'
 import { join } from 'path'
 import { logEvent } from 'src/services/analytics/index.js'
@@ -359,7 +359,9 @@ async function getSnapshotScript(
       : ''
   const claudeCodeContent = await getClaudeCodeSnapshotContent()
 
-  const script = `SNAPSHOT_FILE=${quote([snapshotFilePath])}
+  const script = `HISTFILE=/dev/null
+      HISTSIZE=0
+      SNAPSHOT_FILE=${quote([snapshotFilePath])}
       ${configFileExists ? `source "${configFile}" < /dev/null` : '# No user config file to source'}
 
       # First, create/clear the snapshot file
@@ -443,8 +445,9 @@ export const createAndSaveSnapshot = async (
         `snapshot-${shellType}-${timestamp}-${randomId}.sh`,
       )
 
-      // Ensure snapshots directory exists
+      // Ensure snapshots directory exists and is private (user-only)
       await mkdir(snapshotsDir, { recursive: true })
+      await chmod(snapshotsDir, 0o700).catch(() => {})
 
       const snapshotScript = await getSnapshotScript(
         binShell,
@@ -530,6 +533,9 @@ export const createAndSaveSnapshot = async (
                 `Shell snapshot created successfully (${snapshotSize} bytes)`,
               )
 
+              // Restrict snapshot file to owner-only read/write
+              await chmod(shellSnapshotPath, 0o600).catch(() => {})
+
               // Register cleanup to remove snapshot on graceful shutdown
               registerCleanup(async () => {
                 try {
@@ -543,6 +549,21 @@ export const createAndSaveSnapshot = async (
                   )
                 }
               })
+
+              // TTL-based cleanup: delete snapshot after 2 hours even if process crashes
+              // without triggering the graceful shutdown cleanup handler
+              const SNAPSHOT_MAX_AGE_MS = 2 * 60 * 60 * 1000
+              const ttlTimer = setTimeout(async () => {
+                try {
+                  await getFsImplementation().unlink(shellSnapshotPath)
+                  logForDebugging(
+                    `TTL cleanup of shell snapshot: ${shellSnapshotPath}`,
+                  )
+                } catch {
+                  // Already cleaned up by graceful shutdown handler — no-op
+                }
+              }, SNAPSHOT_MAX_AGE_MS)
+              ttlTimer.unref() // don't prevent process exit
 
               resolve(shellSnapshotPath)
             } else {

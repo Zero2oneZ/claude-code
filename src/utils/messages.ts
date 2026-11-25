@@ -4310,8 +4310,11 @@ function createToolResultMessage<Output>(
       typeof result.content === 'string'
         ? result.content
         : jsonStringify(result.content)
+    // Wrap in trust tag so the model can distinguish untrusted external content
+    // from system instructions (pairs with the trust hierarchy in prompts.ts).
+    const wrappedContent = `<tool_output trust="untrusted">\n${contentStr}\n</tool_output>`
     return createUserMessage({
-      content: `Result of calling the ${tool.name} tool:\n${contentStr}`,
+      content: `Result of calling the ${tool.name} tool:\n${wrappedContent}`,
       isMeta: true,
     })
   } catch {

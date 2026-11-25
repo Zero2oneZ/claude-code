@@ -1,24 +1,39 @@
 import { isEnvTruthy } from './envUtils.js'
+import { logForDebugging } from './debug.js'
 
 /**
- * Env vars to strip from subprocess environments when running inside GitHub
- * Actions. This prevents prompt-injection attacks from exfiltrating secrets
- * via shell expansion (e.g., ${ANTHROPIC_API_KEY}) in Bash tool commands.
+ * Env vars stripped from subprocess environments by default.
+ * This prevents prompt-injection attacks from exfiltrating secrets via shell
+ * expansion (e.g., ${ANTHROPIC_API_KEY}) in Bash tool commands.
  *
  * The parent claude process keeps these vars (needed for API calls, lazy
- * credential reads). Only child processes (bash, shell snapshot, MCP stdio, LSP, hooks) are scrubbed.
+ * credential reads). Only child processes (bash, shell snapshot, MCP stdio,
+ * LSP servers, hooks) are scrubbed.
  *
  * GITHUB_TOKEN / GH_TOKEN are intentionally NOT scrubbed — wrapper scripts
  * (gh.sh) need them to call the GitHub API. That token is job-scoped and
  * expires when the workflow ends.
+ *
+ * To pass all env vars to subprocesses (opt-out of scrubbing), set:
+ *   CLAUDE_CODE_SUBPROCESS_PASS_ENV=1
+ * The legacy CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 flag is kept as a no-op
+ * alias (scrubbing is now the default).
  */
-const GHA_SUBPROCESS_SCRUB = [
+const SUBPROCESS_SCRUB_LIST = [
   // Anthropic auth — claude re-reads these per-request, subprocesses don't need them
   'ANTHROPIC_API_KEY',
   'CLAUDE_CODE_OAUTH_TOKEN',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_FOUNDRY_API_KEY',
   'ANTHROPIC_CUSTOM_HEADERS',
+
+  // Session & OAuth tokens — active session credentials that must not leak to shells
+  'CLAUDE_CODE_SESSION_ACCESS_TOKEN',
+  'CLAUDE_CODE_OAUTH_REFRESH_TOKEN',
+
+  // MCP OAuth secrets
+  'MCP_CLIENT_SECRET',
+  'MCP_XAA_IDP_CLIENT_SECRET',
 
   // OTLP exporter headers — documented to carry Authorization=Bearer tokens
   // for monitoring backends; read in-process by OTEL SDK, subprocesses never need them
@@ -83,13 +98,21 @@ export function subprocessEnv(): NodeJS.ProcessEnv {
   // CCR containers.
   const proxyEnv = _getUpstreamProxyEnv?.() ?? {}
 
-  if (!isEnvTruthy(process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)) {
+  // Scrubbing is ON by default. Set CLAUDE_CODE_SUBPROCESS_PASS_ENV=1 to opt out
+  // (e.g. if a bash helper script legitimately needs to inherit ANTHROPIC_API_KEY).
+  // The legacy CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 flag is kept as a no-op alias
+  // since scrubbing is now the default behavior.
+  if (isEnvTruthy(process.env.CLAUDE_CODE_SUBPROCESS_PASS_ENV)) {
+    logForDebugging(
+      '[subprocessEnv] WARNING: credential scrubbing disabled via CLAUDE_CODE_SUBPROCESS_PASS_ENV',
+    )
     return Object.keys(proxyEnv).length > 0
       ? { ...process.env, ...proxyEnv }
       : process.env
   }
+
   const env = { ...process.env, ...proxyEnv }
-  for (const k of GHA_SUBPROCESS_SCRUB) {
+  for (const k of SUBPROCESS_SCRUB_LIST) {
     delete env[k]
     // GitHub Actions auto-creates INPUT_<NAME> for `with:` inputs, duplicating
     // secrets like INPUT_ANTHROPIC_API_KEY. No-op for vars that aren't action inputs.

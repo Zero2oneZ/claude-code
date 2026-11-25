@@ -276,8 +276,6 @@ function createSpeculationFeedbackMessage(
   timeSavedMs: number,
   sessionTotalMs: number,
 ): Message | null {
-  if (process.env.USER_TYPE !== 'ant') return null
-
   if (messages.length === 0 || timeSavedMs === 0) return null
 
   const toolUses = countToolsInMessages(messages)
@@ -285,10 +283,10 @@ function createSpeculationFeedbackMessage(
 
   const parts = []
   if (toolUses > 0) {
-    parts.push(`Speculated ${toolUses} tool ${toolUses === 1 ? 'use' : 'uses'}`)
+    parts.push(`⚡ Predicted ${toolUses} tool ${toolUses === 1 ? 'call' : 'calls'}`)
   } else {
     const turns = messages.length
-    parts.push(`Speculated ${turns} ${turns === 1 ? 'turn' : 'turns'}`)
+    parts.push(`⚡ Predicted ${turns} ${turns === 1 ? 'turn' : 'turns'}`)
   }
 
   if (tokens !== null) {
@@ -302,8 +300,8 @@ function createSpeculationFeedbackMessage(
       : ''
 
   return createSystemMessage(
-    `[ANT-ONLY] ${parts.join(' · ')} · ${savedText}${sessionSuffix}`,
-    'warning',
+    `${parts.join(' · ')} · ${savedText}${sessionSuffix}`,
+    'info',
   )
 }
 

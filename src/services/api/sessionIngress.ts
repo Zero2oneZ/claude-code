@@ -195,6 +195,13 @@ export async function appendSessionLog(
   entry: TranscriptMessage,
   url: string,
 ): Promise<boolean> {
+  // CLAUDE_CODE_NO_UPLOAD=1 disables remote transcript persistence.
+  // Session still functions locally; resume/teleport from other devices won't work.
+  if (isEnvTruthy(process.env.CLAUDE_CODE_NO_UPLOAD)) {
+    logForDebugging('[session-ingress] Upload disabled via CLAUDE_CODE_NO_UPLOAD')
+    return true
+  }
+
   const sessionToken = getSessionIngressAuthToken()
   if (!sessionToken) {
     logForDebugging('No session token available for session persistence')
@@ -218,6 +225,11 @@ export async function getSessionLogs(
   sessionId: string,
   url: string,
 ): Promise<Entry[] | null> {
+  if (isEnvTruthy(process.env.CLAUDE_CODE_NO_UPLOAD)) {
+    logForDebugging('[session-ingress] Fetch skipped — upload disabled via CLAUDE_CODE_NO_UPLOAD')
+    return []
+  }
+
   const sessionToken = getSessionIngressAuthToken()
   if (!sessionToken) {
     logForDebugging('No session token available for fetching session logs')
